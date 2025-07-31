@@ -6,7 +6,20 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
 import { useAuth } from "@/hooks/useAuth";
+import { AuthProvider } from '@/context/AuthContext';
 
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <AuthProvider>
+          <Toaster />
+          <Router />
+        </AuthProvider>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { isAuthenticated, isLoading } = useAuth();
 
