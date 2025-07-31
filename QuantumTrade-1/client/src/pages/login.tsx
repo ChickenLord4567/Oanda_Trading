@@ -23,7 +23,6 @@ export default function Login() {
       const data = await response.json();
 
       if (data.success) {
-        setAuthenticated(true);
         toast({
           title: "Login Successful",
           description: "Welcome to OANDA Trading Dashboard",

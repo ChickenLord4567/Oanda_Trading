@@ -1,13 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useAuthContext } from '@/context/AuthContext';
 
-export function useAuth() {
-  return useAuthContext();
-}
 export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  return useAuthContext();
+
   useEffect(() => {
     checkAuthStatus();
   }, []);
