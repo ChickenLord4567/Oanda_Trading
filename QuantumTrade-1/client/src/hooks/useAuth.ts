@@ -7,7 +7,7 @@ export function useAuth() {
 export function useAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
+  return useAuthContext();
   useEffect(() => {
     checkAuthStatus();
   }, []);
