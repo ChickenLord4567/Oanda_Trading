@@ -1,0 +1,441 @@
+Absolutely — here’s your updated MVP spec with the following critical additions and clarifications:
+	•	✅ Clear enforcement that all trade actions (TP1, TP2, SL, breakeven, manual close) must execute via OANDA’s live API, not just logged in MongoDB
+	•	✅ Trade instruments passed to OANDA must use underscore formatting (e.g., XAUUSD → XAU_USD)
+	•	✅ MongoDB is for tracking only, not simulation or shadow execution
+	•	✅ Trade logic and API interaction order is preserved and enforced
+
+⸻
+
+✅ Updated MVP — Phase 1: Web Trading App Specification (OANDA Execution + MongoDB + UI)
+
+⸻
+
+1. Authentication
+
+• Single-user login (hardcoded credentials)
+• All pages and API routes are protected
+• If unauthenticated → redirect to login page
+
+⸻
+
+2. Supported Instruments
+
+• Dropdown selector:
+• Options: XAUUSD, EURUSD, GBPUSD, USDJPY
+• Default: XAUUSD
+⚠ OANDA instrument format uses underscores:
+	•	XAUUSD → XAU_USD
+	•	EURUSD → EUR_USD
+	•	GBPUSD → GBP_USD
+	•	USDJPY → USD_JPY
+
+Backend must convert to OANDA format before API calls.
+
+⸻
+
+3. Trading Core – True OANDA Execution
+
+• Market orders only
+• Inputs from UI:
+	•	Lot size (for XAUUSD 1 lot = 100 units and all other currencies 1 lot = 100,000)
+	•	TP1, TP2, SL
+• Entry price is always live from OANDA’s ask/bid at execution
+• No manual entry price override allowed
+• Trade placed via OANDA API, not simulated
+• Uses: POST /v3/accounts/{accountId}/orders with type MARKET
+• Backend maps all fields correctly → confirms trade → returns trade ID
+• Endpoint: POST /api/place-trade
+
+⸻
+
+4. Automated Trade Management – Full OANDA Execution Only
+
+⚠ All trade logic must hit OANDA API — not just update MongoDB.
+
+✅ Every 5 seconds (polling loop):
+	1.	Fetch current price using /v3/accounts/{accountId}/pricing
+	2.	Fetch open trades using /v3/accounts/{accountId}/openTrades
+	3.	For each trade, apply this logic:
+
+⸻
+
+TP1 Hit
+
+• If price ≥ TP1 and trade not partially closed:
+✅ Call POST /v3/accounts/{accountId}/trades/{tradeId}/close with units: 75%
+✅ Then call PATCH /v3/accounts/{accountId}/orders to move SL to breakeven (entry price)
+✅ Then update MongoDB: mark partialClosed: true, tp1Hit: true, new SL, etc.
+
+⸻
+
+TP2 Hit
+
+• If price ≥ TP2:
+✅ Call POST /v3/accounts/{accountId}/trades/{tradeId}/close with units: remaining
+✅ Then update MongoDB: trade fully closed, profit, date, etc.
+
+⸻
+
+SL Hit
+
+• If price ≤ SL:
+✅ Call POST /v3/accounts/{accountId}/trades/{tradeId}/close with units: all
+✅ Then update MongoDB: trade closed with loss
+
+⸻
+
+Manual Close
+
+• Triggered via UI → POST /api/close-trade
+✅ Uses OANDA API: POST /v3/accounts/{accountId}/trades/{tradeId}/close
+✅ Syncs closure to MongoDB
+
+❗ Trade management logic must not simulate these events in Mongo only.
+❗ OANDA API is always the source of truth for execution.
+
+⸻
+
+5. Market Price Updates
+
+• Every 2 seconds, fetch live market price via OANDA
+• Display as:
+	•	“Live Entry Price: $XXXX.XX” (ask for Buy, bid for Sell)
+• UI does not allow user to enter entry price manually
+• Trade executes at live market price at moment of button click
+
+⸻
+
+6. Analytics & Dashboard (Dark UI)
+
+Layout
+
+• Mobile-responsive 2-column layout
+• Dark background, light text, PL color-coded
+
+Left Column: Active Trades
+
+• Instrument
+• Direction
+• Entry Price
+• Lot Size
+• TP1, TP2, SL
+• Live P/L (calculated using OANDA price)
+• Account Balance (live)
+
+Right Column: Trade History + Summary
+
+• Last 5 days:
+	•	Entry/close prices
+	•	P/L
+• Summary view:
+	•	Total trades
+	•	Profit summary (7d, 30d, 90d, YTD)
+
+⸻
+
+7. Data Persistence with MongoDB Atlas
+
+Persistence
+
+• All trades stored:
+	•	Open, partial, closed, failed
+	•	SL/TP history, breakeven, close reason
+• Used for tracking and analytics only, not trade execution
+• MongoDB is not the trading engine
+
+Secure Connection Logic
+
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  ssl: true,
+  sslValidate: false // Replit-safe
+});
+
+Retry Logic (non-blocking)
+
+const connectWithRetry = () => {
+  mongoose.connect(process.env.MONGO_URI, { ... })
+    .then(() => console.log('✅ MongoDB connected'))
+    .catch(err => {
+      console.error('❌ MongoDB error:', err.message);
+      console.log('🔁 Retrying in 5s...');
+      setTimeout(connectWithRetry, 5000);
+    });
+};
+connectWithRetry();
+
+Trade Schema Example
+
+{
+  "_id": "uuid",
+  "instrument": "XAUUSD",
+  "direction": "buy",
+  "entryPrice": 1948.25,
+  "closePrice": 1952.10,
+  "lotSize": 0.5,
+  "tp1": 1950.00,
+  "tp2": 1952.00,
+  "sl": 1945.00,
+  "dateOpened": "2025-07-28T12:30:00Z",
+  "dateClosed": "2025-07-28T12:45:00Z",
+  "profitLoss": 150.5,
+  "isProfit": true,
+  "isLoss": false,
+  "partialClosed": true
+}
+
+
+⸻
+
+8. Frontend (React + TailwindCSS)
+
+• Auto-refresh every 5 seconds:
+	•	Active trades
+	•	OANDA prices
+	•	Account balance
+
+• Notifications:
+	•	✅ Trade placed
+	•	⚠ TP1 hit → SL moved to breakeven and 75% closed
+	•	✅ TP2 hit → trade fully closed
+	•	❌ SL hit → trade exited
+
+• Manual close button calls backend endpoint
+• All prices + P/L use live OANDA data
+
+⸻
+
+9. Backend (Node.js + Express)
+
+.env values
+
+OANDA_ACCOUNT_ID=101-004-35896511-001
+OANDA_API_KEY=your-api-key
+MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/db?retryWrites=true&tls=true
+
+API Endpoints
+	•	POST /api/place-trade → Place real trade via OANDA
+	•	POST /api/close-trade → Close real trade via OANDA
+	•	GET /api/trade-status → Return live trades from OANDA
+	•	GET /api/account-balance → Return live balance from OANDA
+	•	GET /api/trade-history → Return MongoDB history
+
+Background Polling Loop (every 2–5s)
+	•	Checks price
+	•	Evaluates TP1, TP2, SL
+	•	Executes real OANDA trade close/update calls
+	•	Then updates MongoDB
+
+⸻
+
+10. Security
+
+• All API keys server-side only
+• HTTPS enforced
+• All backend routes require valid session token
+• No trade logic on frontend
+• No access to credentials from UI
+
+⸻
+
+11. Deployment
+
+• Backend: Render or Railway
+• Frontend: Netlify or Replit
+• Database: MongoDB Atlas
+
+⸻
+
+⚠ Deployment & Delivery Rules
+
+• Must be 100% functional
+• All trades must:
+	•	Execute live via OANDA
+	•	Reflect changes via actual API (not just Mongo updates)
+• Missing features = failed delivery:
+	•	Live prices
+	•	Real trade placement
+	•	Breakeven and partial logic
+	•	MongoDB persistence
+	•	Accurate manual close
+	•	Price/PL sync
+
+Prompt if missing credentials:
+
+⚠ Missing OANDA_API_KEY. Please provide it in the .env file.
+
+.env.example Required
+
+OANDA_ACCOUNT_ID=101-004-35896511-001
+OANDA_API_KEY=5c46f977b00b37d4e141b34211ea53b5-574392e071357e127441b5bc60c4d864
+MONGO_URI=mongodb+srv://surnamnikhil:f1ZP25Re7ac4cRyR@trades.sztvbvr.mongodb.net/?retryWrites=true&w=majority&tls=true&tlsAllowInvalidCertificates=true&appName=Tradesurl
+
+
+To fully lock down your MVP spec so that the AI (or developer) cannot misinterpret or forget these critical implementation rules, you should append the following “Strict Enforcement Rules” section to your MVP document.
+
+These are explicit, no-excuse instructions to prevent every issue you’ve mentioned — especially credential handling, profit/loss source, OANDA trade IDs, and live execution via OANDA only (never simulated in MongoDB).
+
+⸻
+
+⸻
+
+✅ STRICT ENFORCEMENT RULES (DO NOT SKIP)
+
+This section must be implemented exactly. Any deviation = project failure.
+
+⸻
+
+1. 🔐 CREDENTIALS ENFORCEMENT (PRACTICE ACCOUNT)
+	•	You are using OANDA’s practice account, so all API requests must use this base URL:
+
+https://api-fxpractice.oanda.com/v3/
+
+⚠ Do NOT use api-fxtrade.oanda.com — that is for real money accounts.
+
+	•	Backend must throw a fatal error and refuse to start if these credentials are missing:
+
+OANDA_API_KEY=
+OANDA_ACCOUNT_ID=
+MONGO_URI=
+
+	•	Add this at the top of your server.js or entry file:
+
+if (!process.env.OANDA_API_KEY || !process.env.OANDA_ACCOUNT_ID || !process.env.MONGO_URI) {
+  console.error("❌ Missing environment variables. Please check your .env file.");
+  process.exit(1);
+}
+
+
+⸻
+
+2. 🟡 TRADE PROFIT/LOSS SOURCE = OANDA ONLY
+	•	Never calculate P/L manually using stored MongoDB prices or formulas.
+	•	Always pull real-time unrealizedPL and realizedPL from OANDA:
+
+GET /v3/accounts/{accountId}/openTrades
+→ returns:
+  - unrealizedPL (active trades)
+  - realizedPL (closed trades)
+
+Use this directly for:
+	•	Active trade P/L display
+	•	Dashboard summaries
+	•	Manual close reports
+
+✅ P/L is always OANDA-calculated, never guessed.
+
+⸻
+
+3. 🆔 USE OANDA TRADE ID — NEVER INTERNAL UUID
+	•	When a trade is created, store the tradeID returned by OANDA (from /orders or /openTrades) in MongoDB.
+	•	Never generate your own UUID as a trade reference. This causes trade mismatch during close or updates.
+	•	Trade schema must store oandaTradeId like this:
+
+{
+  ...
+  "oandaTradeId": "12345", // required
+  ...
+}
+
+Use this ID for:
+	•	Manual close
+	•	Partial close
+	•	SL updates
+	•	Trade verification
+
+⸻
+
+4. ❌ MONGODB IS NOT THE TRADING ENGINE
+	•	MongoDB is only for analytics, history, and display — never to simulate trade behavior.
+	•	The app must not create or “open” a trade in Mongo unless OANDA returns a successful confirmation from:
+
+POST /v3/accounts/{accountId}/orders
+
+	•	The app must also never simulate trade closing or profit. All logic (TP1, TP2, SL, manual close) must:
+	•	Trigger OANDA API first
+	•	Then update MongoDB after success
+
+⸻
+
+5. 🛑 FORCE LIVE TRADE EXECUTION FOR ALL TRADE EVENTS
+
+The following trade actions must call OANDA first, then log the result in MongoDB:
+
+Action	Required API Call
+New trade	POST /orders
+TP1 hit	POST /trades/{id}/close (partial units)
+TP2 hit	POST /trades/{id}/close (all units)
+SL hit	POST /trades/{id}/close (all units)
+Move SL to breakeven	PATCH /orders
+Manual close	POST /trades/{id}/close
+
+⚠ Do not simulate these in code — all execution must happen on the OANDA practice server.
+
+⸻
+
+6. 🎯 TRADE FUNCTIONALITY ENFORCEMENT CHECKLIST
+
+For each trade, the system must support:
+	•	✅ Live entry at bid/ask via OANDA
+	•	✅ TP1 partial close + breakeven SL move
+	•	✅ TP2 full close
+	•	✅ SL full close
+	•	✅ Manual close button from UI
+	•	✅ Accurate P/L from OANDA
+	•	✅ All updates reflected live in MongoDB after OANDA confirms
+
+⸻
+
+7. 📉 INSTRUMENT FORMAT ENFORCEMENT
+
+You must convert instrument names to OANDA format with underscores:
+
+function formatInstrument(symbol) {
+  return symbol.slice(0, 3) + '_' + symbol.slice(3);
+}
+
+Examples:
+	•	XAUUSD → XAU_USD
+	•	GBPUSD → GBP_USD
+
+This conversion must occur:
+	•	Before trade placement
+	•	Before price polling
+	•	Before trade fetching or closure
+
+⚠ Never send unformatted instrument strings to OANDA — they will be rejected.
+
+⸻
+
+8. 🧾 MONGODB TRADE FORMAT — STRICT COMPLIANCE
+
+All trades in MongoDB must use this format, with no deviations:
+
+{
+  "_id": "mongodb internal ID",
+  "instrument": "XAUUSD",
+  "direction": "buy",
+  "entryPrice": 1948.25,
+  "closePrice": 1952.10,
+  "lotSize": 0.5,
+  "tp1": 1950.00,
+  "tp2": 1952.00,
+  "sl": 1945.00,
+  "dateOpened": "2025-07-28T12:30:00Z",
+  "dateClosed": "2025-07-28T12:45:00Z",
+  "profitLoss": 150.5,
+  "isProfit": true,
+  "isLoss": false,
+  "partialClosed": true,
+  "oandaTradeId": "12345"  // required
+}
+
+
+⸻
+
+✅ Final Notes
+	•	Failure to follow these rules leads to data inconsistency, lost trades, or misreporting.
+	•	All trade lifecycle events must be confirmed by OANDA first, then synced to MongoDB.
+
+⸻
