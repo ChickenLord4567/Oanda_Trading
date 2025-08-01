@@ -266,7 +266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         case '1d': granularity = 'D'; break;
       }
 
-      const chartData = await oandaService.getCandleData(instrument, granularity, 200);
+      const chartData = await oandaService.getCandleData(instrument, granularity, 2000);
       res.json(chartData);
     } catch (error) {
       console.error('Chart data fetch error:', error);
